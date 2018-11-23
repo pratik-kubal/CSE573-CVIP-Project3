@@ -22,6 +22,14 @@ dil_img = dilation(structuring_element=struc_elem,img=erosion_img)
 cv2.imwrite('./1/res_noise1.jpg',np.multiply(dil_img,255))
 
 ''' The above method cannot clear the noise inside the object. For the square 
-at the top left still has noise. However it has denoised it from outside.
+at the top left still has noise. However it has denoised it from outside.'''
 
- 
+open_img = dilation(structuring_element=struc_elem,
+                    img=erosion(structuring_element=struc_elem,
+                                img=bin_image.copy()))
+
+close_img = erosion(structuring_element=struc_elem,
+                    img=dilation(structuring_element=struc_elem,
+                                 img=open_img))
+
+cv2.imwrite('./1/res_noise2.jpg',np.multiply(close_img,255))
