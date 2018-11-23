@@ -33,3 +33,17 @@ close_img = erosion(structuring_element=struc_elem,
                                  img=open_img))
 
 cv2.imwrite('./1/res_noise2.jpg',np.multiply(close_img,255))
+
+
+# Boundary Detectiom
+
+left = erosion(structuring_element=struc_elem,img=dil_img.copy())
+boundary_img = np.subtract(dil_img,left)
+
+cv2.imwrite('./1/res_bound1.jpg',np.multiply(boundary_img,255))
+
+
+left = erosion(structuring_element=struc_elem,img=close_img.copy())
+boundary_img = np.subtract(close_img,left)
+
+cv2.imwrite('./1/res_bound2.jpg',np.multiply(boundary_img,255))
