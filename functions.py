@@ -35,3 +35,31 @@ def erosion(structuring_element,img):
                     if((sliced_img[keyStruct] == 1).all()):
                         skeleton[h+1][w+1] = 1
     return np.asarray(skeleton,dtype='int8')
+
+
+def threshold(thresholdVal,image,thresholdLimit=255):
+    import numpy as np;
+    resultImage = image.copy()
+    for h in range(resultImage.shape[0]):
+        for w in range(resultImage.shape[1]):
+            if(resultImage[h][w] > thresholdVal and resultImage[h][w] <= thresholdLimit):
+                resultImage[h][w] = 1
+            else:
+                resultImage[h][w] = 0
+    return np.array(resultImage,dtype='int8')
+
+def normImage(matA):
+    import numpy as np
+    skeleton=[[] for i in range(0,np.shape(matA)[0])]
+    maxValue = 0
+    absValue = 0
+    for window_h in range(0,np.shape(matA)[0]):
+        for window_w in range(0,np.shape(matA)[1]):
+            absValue = abs(matA[window_h][window_w])
+            skeleton[window_h].append(absValue)     
+            if(maxValue < absValue) : maxValue = absValue
+    returnMat=[[] for i in range(0,np.shape(matA)[0])]
+    for window_h in range(0,np.shape(matA)[0]):
+        for window_w in range(0,np.shape(matA)[1]):
+            returnMat[window_h].append(skeleton[window_h][window_w] / maxValue)
+    return returnMat
