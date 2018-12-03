@@ -67,13 +67,14 @@ def normImage(matA):
     return returnMat
 
 
-class houghTransform:
+class hough:
     import numpy as np;
     import cv2
     
-    def __init__(self,image):
+    def __init__(self,image,noiseReduction=True,kernelSize=(7,7)):
         self.image = image.copy()
-        self.image = cv2.GaussianBlur(self.image,(7,7),0)
+        if(noiseReduction):
+            self.image = cv2.GaussianBlur(self.image,kernelSize,0)
         self.rho = np.min(self.image.shape)
         self.theta=180
         self.accumulator=np.zeros((self.rho,self.theta))
@@ -136,7 +137,7 @@ class houghTransform:
         self.sobelImage = np.array(self.sobelImage)
         return self.sobelImage,self.edge_direction
     
-    def transform(self,angle_range,num_angles,write=False):
+    def transformLines(self,angle_range,num_angles,write=False):
         # https://arxiv.org/pdf/1510.04863.pdf
         # Calculates Gradient of the image
         self.accumulator=np.zeros(((int)(np.ceil(np.sqrt(np.square(self.sobelImage.shape[0])+np.square(self.sobelImage.shape[1])))*2),np.abs(angle_range[0])+np.abs(angle_range[1])*2+2))
@@ -196,4 +197,115 @@ class houghTransform:
             y2 = int(y0 - 1000*(a))
             cv2.line(houghImage,(x1,y1),(x2,y2),(255,0,0),2)
         cv2.imwrite('./temp/houghOt.jpg',houghImage)
+        
+    @staticmethod
+    def __erosion(structuring_element,img):
+        strucArray = structuring_element.copy().reshape(1,np.shape(structuring_element[0]*np.shape(structuring_element[1]))).flatten()
+        keyStruct=[]
+        for i,boolVal in enumerate(strucArray == 1): 
+            if(boolVal == True):
+                keyStruct.append(i)
+        skeleton=[[0 for i in range(0,np.shape(img)[1])] for i in range(0,np.shape(img)[0])]
+        for h in range(np.shape(img)[0]-2):
+            for w in range((np.shape(img)[1])-2):
+                sliced_img = img[h:h+3,w:w+3].copy().reshape(1,9).flatten()
+                if(not (sliced_img == 0).all()):
+                    for i in keyStruct:
+                        if((sliced_img[keyStruct] == 1).all()):
+                            skeleton[h+1][w+1] = 1
+        return np.asarray(skeleton,dtype='int8')
+    
+    def boundaryExtraction(self):
+        from functions import erosion
+        struc_elem = [[0,1,1],
+              [1,0,1],
+              [1,1,0]]
+        #struc_elem2 = [[0,0,0],
+        #      [1,0,1],
+        #      [0,0,0]]
+        struc_elem=np.asarray(struc_elem)
+        #struc_elem2=np.asarray(struc_elem2)
+        erosion_img = erosion(structuring_element=struc_elem,img=self.sobelImage)
+        #erosion_img = erosion(structuring_element=struc_elem2,img=erosion_img)
+        cv2.imwrite('./temp/erodedCircles.jpg',np.multiply(erosion_img,255))
+        self.erosion_img=erosion_img
+        self.sobelImage=self.erosion_img
+        return self.erosion_img
+    
+    def lineDetection(self,magnitudeThreshold):
+        mask45=[[2,-1,-1],
+                [-1,2,-1],
+                [-1,-1,2]]
+        mask90=[[-1,2,-1],
+                [-1,2,-1],
+                [-1,2,-1]]
+        self.mask45 = np.array(mask45)
+        self.mask90 = np.array(mask90)
+        masks = [self.mask45,self.mask90]
+        lines=[]
+        for mask in masks:
+            #mask = np.transpose(mask)
+            space = (int)(mask.shape[0]/2)
+            pad_image = np.pad(self.image,pad_width=space,mode='edge')
+            vec_mask = mask.reshape(1,mask.shape[0]*mask.shape[1])
+            linesImage=[[0 for i in range(0,np.shape(self.image)[1])] for i in range(0,np.shape(self.image)[0])]
+            for h in range(np.shape(pad_image)[0]-(space+2)):
+                for w in range((np.shape(pad_image)[1])-(space+2)):
+                    sliced_img = pad_image[h:h+mask.shape[0],w:w+mask.shape[1]].reshape(mask.shape[0]*mask.shape[1],1)
+                    linesImage[h][w]=np.asscalar(np.dot(vec_mask,sliced_img))
+            linesImage = np.abs(linesImage)/np.max(np.abs(linesImage))
+            lines.append(linesImage)
+        cv2.imwrite('./temp/lines_45.jpg',np.multiply(lines[0],255))
+        cv2.imwrite('./temp/lines_90.jpg',np.multiply(lines[1],255))
+        lines_magnitude = np.sqrt(lines[0] ** 2 + lines[1] ** 2)
+        lines_magnitude /= np.max(lines_magnitude)
+        self.lines_magnitude = np.multiply(lines_magnitude,255)
+        self.lines_magnitude_bin= self.__threshold(image=self.lines_magnitude.copy(),thresholdVal=magnitudeThreshold)
+        cv2.imwrite('./temp/line_det.jpg',np.multiply(self.lines_magnitude_bin,255))
+        return self.lines_magnitude_bin
+    
+    def transformCircle(self,r,angle_range):
+        self.r = r
+        maxA=0
+        maxB=0
+        for theta in np.arange(angle_range[0],angle_range[1]):
+            a1=0-np.multiply(self.r,np.cos(np.deg2rad(theta)))
+            b1=0-np.multiply(self.r,np.sin(np.deg2rad(theta)))
+            a2=0-np.multiply(self.r,np.cos(np.deg2rad(theta)))
+            b2=self.sobelImage.shape[0]-np.multiply(self.r,np.sin(np.deg2rad(theta)))
+            a3=self.sobelImage.shape[1]-np.multiply(self.r,np.cos(np.deg2rad(theta)))
+            b3=0-np.multiply(r,np.sin(np.deg2rad(theta)))
+            a4=self.sobelImage.shape[1]-np.multiply(self.r,np.cos(np.deg2rad(theta)))
+            b4=self.sobelImage.shape[0]-np.multiply(self.r,np.sin(np.deg2rad(theta)))
+            if(maxA<np.max([a1,a2,a3,a4])):
+                maxA=np.max([a1,a2,a3,a4])
+            if(maxB<np.max([b1,b2,b3,b4])):
+                maxB=np.max([b1,b2,b3,b4])
+        #print(maxB,maxA)
+        self.accumulator=np.zeros((int(np.ceil(maxB*2+2*self.r)+1),int(np.ceil(maxA*2+2*self.r)+1)))
+        for x in range(self.sobelImage.shape[1]):
+            for y in range(self.sobelImage.shape[0]):
+                if(self.sobelImage[y,x]==1):
+                    for theta in np.arange(angle_range[0],angle_range[1]):
+                        a=x-np.multiply(self.r,np.cos(np.deg2rad(theta)))
+                        b=y-np.multiply(self.r,np.sin(np.deg2rad(theta)))
+                        self.accumulator[int(self.accumulator.shape[0]/2+np.round(b)),int(self.accumulator.shape[1]/2+np.round(a))] +=self.edge_magnitude[y,x]*255
+        cv2.imwrite('./temp/circleAccumulator.jpg',np.multiply(self.accumulator/np.max(self.accumulator),255))
+        return self.accumulator
+    
+    def plotHoughCircles(self,image):
+        houghImage = image.copy()
+        for b,a in self.houghPoints:
+            if(b < self.accumulator.shape[0]/2):
+                b = self.accumulator.shape[0]/2-b
+                b = b*-1
+            if(b > self.accumulator.shape[0]/2):
+                b = b - self.accumulator.shape[0]/2
+            if(a < self.accumulator.shape[1]/2):
+                a = self.accumulator.shape[1]/2 - a
+                a = (a*-1)
+            if(a >= self.accumulator.shape[1]/2):
+                a = a - self.accumulator.shape[1]/2
+            cv2.circle(houghImage,(int(np.round(a)),int(np.round(b))),self.r,(255,0,0),3,8,0)
+        cv2.imwrite('./temp/houghCircle.jpg',houghImage)
     
