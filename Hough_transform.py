@@ -15,12 +15,15 @@ hough_image = cv2.imread("./original_imgs/hough.jpg",0)
 #del hough_col
 hough_col = cv2.imread("./original_imgs/hough.jpg")
 
-blue_lines = hough(hough_image)
-sobel_image,edge_directions = blue_lines.sobel(magnitudeThreshold=[20,255],angleThreshold=[30,50])
-angle_range=[-90,270]
+blue_lines = hough(hough_image,noiseReduction=False,kernelSize=(3,3))
+sobel_image,edge_directions = blue_lines.sobel(magnitudeThreshold=[20,110],angleThreshold=[20,50])
+blue_lines.line45refine(magnitudeThreshold=[20,40])
+angle_range=[-90,90]
 num_angles=360
 accumulator = blue_lines.transformLines(angle_range=angle_range,num_angles=num_angles)
-points = blue_lines.accioLocalMax(thresholdVal =np.max(accumulator)*0.8 ,kernelSize = 10)
+points = blue_lines.accioLocalMax(thresholdVal =np.max(accumulator)*0.10 ,kernelSize = 100)
+points
+blue_lines.plotHoughLines(image=hough_col,accuracy=1.1)
 
 red_lines = hough(hough_image)
 sobel_image,edge_directions = red_lines.sobel(magnitudeThreshold=[20,110],angleThreshold=[70,90],write=True)
