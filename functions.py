@@ -5,6 +5,8 @@ Created on Fri Nov 23 00:37:05 2018
 
 @author: pratik
 """
+import numpy as np;
+import cv2
 
 def dilation(structuring_element,img):
     import numpy as np;
@@ -63,3 +65,135 @@ def normImage(matA):
         for window_w in range(0,np.shape(matA)[1]):
             returnMat[window_h].append(skeleton[window_h][window_w] / maxValue)
     return returnMat
+
+
+class houghTransform:
+    import numpy as np;
+    import cv2
+    
+    def __init__(self,image):
+        self.image = image.copy()
+        self.image = cv2.GaussianBlur(self.image,(7,7),0)
+        self.rho = np.min(self.image.shape)
+        self.theta=180
+        self.accumulator=np.zeros((self.rho,self.theta))
+        mask_x = [[1,0,-1],
+          [2,0,-2],
+          [1,0,-1]]
+        self.mask_x = np.array(mask_x)
+        mask_y = [[-1,-2,-1],
+                  [0,0,0],
+                  [1,2,1]]
+        self.mask_y = np.array(mask_y)
+    
+    @staticmethod
+    def __threshold(image,thresholdVal):
+        for h in range(image.shape[0]):
+            for w in range(image.shape[1]):
+                if(image[h][w] > thresholdVal[0] and image[h][w] <= thresholdVal[1]):
+                    image[h][w] = 1
+                else:
+                    image[h][w] = 0
+        return np.array(image)
+    
+    def sobel(self,magnitudeThreshold,angleThreshold,write=False):
+        masks = [self.mask_x,self.mask_y]
+        edges=[]
+        for mask in masks:
+            mask = np.transpose(mask)
+            space = (int)(mask.shape[0]/2)
+            pad_image = np.pad(self.image,pad_width=space,mode='edge')
+            vec_mask = mask.reshape(1,mask.shape[0]*mask.shape[1])
+            sobelImage=[[0 for i in range(0,np.shape(self.image)[1])] for i in range(0,np.shape(self.image)[0])]
+            for h in range(np.shape(pad_image)[0]-(space+2)):
+                for w in range((np.shape(pad_image)[1])-(space+2)):
+                    sliced_img = pad_image[h:h+mask.shape[0],w:w+mask.shape[1]].reshape(mask.shape[0]*mask.shape[1],1)
+                    sobelImage[h][w]=np.asscalar(np.dot(vec_mask,sliced_img))
+            sobelImage = np.abs(sobelImage)/np.max(np.abs(sobelImage))
+            edges.append(sobelImage)
+        cv2.imwrite('./temp/edge_x.jpg',np.multiply(edges[0],255))
+        cv2.imwrite('./temp/edge_y.jpg',np.multiply(edges[1],255))
+        edge_magnitude = np.sqrt(edges[0] ** 2 + edges[1] ** 2)
+        edge_magnitude /= np.max(edge_magnitude)
+        self.edge_magnitude = np.multiply(edge_magnitude,255)
+        self.edge_magnitude_bin= self.__threshold(image=self.edge_magnitude.copy(),thresholdVal=magnitudeThreshold)
+        cv2.imwrite('./temp/edge_mag.jpg',np.multiply(edge_magnitude,255))
+        edge_direction = np.arctan(edges[1] / (edges[0] + 1e-3))
+        edge_direction = edge_direction * 180. / np.pi
+        #edge_direction /= np.max(edge_direction)
+        self.sobelImage = self.__threshold(image=edge_direction.copy(),thresholdVal=angleThreshold)
+        self.edge_direction = np.zeros(edge_direction.shape)
+        for h in range(self.sobelImage.shape[0]):
+            for w in range(self.sobelImage.shape[1]):
+                if(self.edge_magnitude_bin[h][w]==0):
+                    self.sobelImage[h,w] = 0
+        for h in range(self.sobelImage.shape[0]):
+            for w in range(self.sobelImage.shape[1]):
+                if(self.sobelImage[h,w] == 1):
+                    self.edge_direction[h,w]=edge_direction[h,w]
+        cv2.imwrite('./temp/sobel_angle_thresholded.jpg',np.multiply(self.sobelImage,255))
+        #self.sobelImage = np.multiply(self.sobelImage,255)
+        self.sobelImage = np.array(self.sobelImage)
+        return self.sobelImage,self.edge_direction
+    
+    def transform(self,angle_range,num_angles,write=False):
+        # https://arxiv.org/pdf/1510.04863.pdf
+        # Calculates Gradient of the image
+        self.accumulator=np.zeros(((int)(np.ceil(np.sqrt(np.square(self.sobelImage.shape[0])+np.square(self.sobelImage.shape[1])))*2),np.abs(angle_range[0])+np.abs(angle_range[1])*2+2))
+#        a = int(np.ceil(np.max(self.edge_direction)-np.min(self.edge_direction)))+1
+#        self.accumulator=np.zeros((int(np.ceil(np.sqrt(np.square(self.sobelImage.shape[0])+np.square(self.sobelImage.shape[1])))),a))
+#        for x in range(self.sobelImage.shape[1]):
+#            for y in range(self.sobelImage.shape[0]):
+#                if(self.sobelImage[y,x] == 1):
+#                    angle = np.deg2rad(self.edge_direction[y,x])
+#                    rhoVal = np.add(np.multiply(x,np.cos((angle))),np.multiply(y,np.sin((angle))))
+#                    #print(int(np.round(rhoVal)),int(np.round(np.rad2deg(angle))))
+#                    self.accumulator[int(np.round(rhoVal)),int(np.round(self.edge_direction[y,x]))]+=self.edge_magnitude[y,x]*255
+#                    #self.accumulator[int(np.round(rhoVal+self.accumulator.shape[0]/2)),int(self.accumulator.shape[1]/2 + angle)]+=1
+#        # Refine Accumulator
+        for x in range(self.sobelImage.shape[1]):
+            for y in range(self.sobelImage.shape[0]):
+                if(self.sobelImage[y,x] == 1):
+                    for angle in np.arange(angle_range[0],angle_range[1]):
+                        rhoVal = np.add(np.multiply(x,np.cos((np.deg2rad(angle)))),np.multiply(y,np.sin((np.deg2rad(angle)))))
+                        #print(rhoVal)
+                        self.accumulator[int(self.accumulator.shape[0]/2+np.round(rhoVal)),int(self.accumulator.shape[1]/2+np.round(angle))]+=self.edge_magnitude[y,x]*255
+        cv2.imwrite('./temp/accumulato2r.jpg',np.multiply(self.accumulator/np.max(self.accumulator),255))
+        return self.accumulator
+    
+    def accioLocalMax(self,thresholdVal,kernelSize=3):
+        self.houghPoints=[]
+        bin_accumulator = self.__threshold(self.accumulator.copy(),[thresholdVal,np.max(self.accumulator.copy())+1])
+        for h in range(bin_accumulator.shape[0]):
+            for w in range(bin_accumulator.shape[1]):
+                if(h%kernelSize==0 and w%kernelSize==0):
+                    if((bin_accumulator[h:h+kernelSize,w:w+kernelSize]==1).any()):
+                        #binFrame = bin_accumulator[h:h+kernelSize,w:w+kernelSize]
+                        localMax = np.unravel_index(self.accumulator[h:h+kernelSize,w:w+kernelSize].argmax(),self.accumulator[h:h+kernelSize,w:w+kernelSize].shape)
+                        self.houghPoints.append((h+localMax[0],w+localMax[1]))
+        return self.houghPoints
+    
+    def plotHoughLines(self,image):
+        houghImage = image.copy()
+        for rho,theta in self.houghPoints:
+            if(rho < self.accumulator.shape[0]/2):
+                rho = self.accumulator.shape[0]/2-rho
+                rho = rho*-1
+            if(rho > self.accumulator.shape[0]/2):
+                rho = rho - self.accumulator.shape[0]/2
+            if(theta < self.accumulator.shape[1]/2):
+                theta = self.accumulator.shape[1]/2 - theta
+                theta = (theta*-1)
+            if(theta >= self.accumulator.shape[1]/2):
+                theta = theta - self.accumulator.shape[1]/2
+            a = np.cos(np.deg2rad(theta))
+            b = np.sin(np.deg2rad(theta))
+            x0 = a*(rho)
+            y0 = b*(rho)
+            x1 = int(x0 + 1000*(-b))
+            y1 = int(y0 + 1000*(a))
+            x2 = int(x0 - 1000*(-b))
+            y2 = int(y0 - 1000*(a))
+            cv2.line(houghImage,(x1,y1),(x2,y2),(255,0,0),2)
+        cv2.imwrite('./temp/houghOt.jpg',houghImage)
+    
