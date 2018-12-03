@@ -308,3 +308,126 @@ class hough:
             cv2.circle(houghImage,(int(np.round(a)),int(np.round(b))),self.r,(255,0,0),3,8,0)
         cv2.imwrite('./temp/houghCircle.jpg',houghImage)
     
+
+class histogram:
+    import numpy as np;
+    import cv2
+    from matplotlib import pyplot as plt
+    
+    def __init__(self,image,tileSize=[8,8],NoiseReduction=False,kernelSize=(7,7)):
+        self.image=image.copy()
+        if(NoiseReduction):
+            self.image = cv2.GaussianBlur(self.image,kernelSize,0)
+        self.tileSize=tileSize
+        
+    @staticmethod
+    def __threshold(image,thresholdVal,binarize=True):
+        for h in range(image.shape[0]):
+            for w in range(image.shape[1]):
+                if(image[h][w] > thresholdVal[0] and image[h][w] <= thresholdVal[1]):
+                    if(binarize):
+                        image[h][w] = 1
+                else:
+                    image[h][w] = 0
+        return np.array(image)
+        
+    def adaptiveHist(self):
+        image = self.image.copy()
+        for h in range(image.shape[0]):
+            for w in range(image.shape[1]):
+                if(h%self.tileSize[0]==0 and w%self.tileSize[1]==0):
+                        #image[h1:h1+self.tileSize[0],w1:w1+self.tileSize[1]]=self.optimalThresholding(image=image[h1:h1+self.tileSize[0],w1:w1+self.tileSize[1]])
+                        image[h:h+self.tileSize[0],w:w+self.tileSize[1]]=self.optimalThresholding(image=image[h:h+self.tileSize[0],w:w+self.tileSize[1]])
+        self.adaptiveHistImage=image
+        cv2.imwrite('./2/adaptiveThresholding.jpg',np.multiply(self.adaptiveHistImage,255))
+        return self.adaptiveHistImage
+    
+    def __cdfNorm(self):
+        image = self.image.copy()
+        vect_image = image.reshape((image.shape[0]*image.shape[1],1))
+        vect_image = np.array(vect_image,dtype='float32')
+        # Histogram Equilization
+        a,b = np.unique(vect_image,return_counts=True)
+        L = 256
+        p = np.divide(b,np.sum(b))
+        # https://www.math.uci.edu/icamp/courses/math77c/demos/hist_eq.pdf
+        cdf = np.floor(np.multiply(L-1,np.cumsum(p)))
+        cdf_dict = {}
+        for i,item in enumerate(list(a)):
+            cdf_dict.update({item:cdf[i]})
+        for h in range(image.shape[0]):
+            for w in range(image.shape[1]):
+                image[h,w] = cdf_dict.get(image[h,w])
+        self.histNormalized = image
+        return np.array(self.histNormalized)
+
+    def optimalThresholding(self,image=None):
+        #self.__cdfNorm()
+        if(image is not None):
+            self.histNormalized=image.copy()
+        else:
+            self.histNormalized=self.image.copy()
+        vect_image = self.histNormalized.reshape((self.histNormalized.shape[0]*self.histNormalized.shape[1],1))
+        vect_image = np.array(vect_image,dtype='float32')
+        
+        criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER,100, 1.0)
+        
+        _,_,centers = cv2.kmeans(vect_image,2,None,criteria,10,cv2.KMEANS_RANDOM_CENTERS)
+        
+        thresholdVal = np.mean(centers)
+        
+        self.optimalThresImage = self.__threshold(image=self.histNormalized.copy(),thresholdVal=[thresholdVal,255])
+        cv2.imwrite('./2/OptimalThresholding.jpg',np.multiply(self.optimalThresImage,255))
+        return self.optimalThresImage
+    
+    def specificThresholding(self,thresholdVal,binarize=False):
+        self.specificThresImage = self.__threshold(image=self.image.copy(),thresholdVal=thresholdVal,binarize=binarize)
+        cv2.imwrite('./2/manualThresholding.jpg',np.multiply(self.specificThresImage,255))
+        return self.specificThresImage
+        
+class pointDetection:
+    import numpy as np;
+    import cv2
+    def __init__(self,image,kernelSize=(7,7)):
+        self.image=image.copy()
+        #self.image=cv2.GaussianBlur(self.image,kernelSize,0)
+        self.image = np.array(self.image,dtype='float64')
+        mask = [[-1,-1,-1],
+        [-1,8,-1],
+        [-1,-1,-1]]
+        self.mask = np.array(mask)
+        
+    @staticmethod
+    def __threshold(image,thresholdVal,binarize=True):
+        for h in range(image.shape[0]):
+            for w in range(image.shape[1]):
+                if(image[h][w] > thresholdVal[0] and image[h][w] <= thresholdVal[1]):
+                    if(binarize):
+                        image[h][w] = 1
+                else:
+                    image[h][w] = 0
+        return np.array(image)
+    
+    def pointDet(self,thresholdVal):
+        from functions import normImage
+        img = self.image.copy()
+        vect_mask = self.mask.reshape(1,self.mask.shape[0]*self.mask.shape[1])
+        pointDetectedImage=[[0 for i in range(0,np.shape(img)[1])] for i in range(0,np.shape(img)[0])]
+        for h in range(np.shape(img)[0]-self.mask.shape[0]):
+            for w in range((np.shape(img)[1])-self.mask.shape[1]):
+                sliced_img = img[h:h+self.mask.shape[0],w:w+self.mask.shape[1]].reshape(self.mask.shape[0]*self.mask.shape[1],1)
+                r=np.asscalar(np.dot(vect_mask,sliced_img))
+                pointDetectedImage[h][w] = np.abs(r)
+        pointDetectedImage = np.array(pointDetectedImage)
+        print(np.max(pointDetectedImage))
+        self.pointDetectedImage_bin = self.__threshold(image=pointDetectedImage.copy(),thresholdVal=thresholdVal)
+        #pointDetectedImage = np.multiply(np.array(normImage(pointDetectedImage)),255)
+        #pointDetectedImage = np.multiply(pointDetectedImage,255)
+        cv2.imwrite('./temp/pointDetRaw.jpg',np.multiply(self.pointDetectedImage_bin,255))
+        #self.pointDetectedImage = pointDetectedImage
+        #cv2.imwrite('./temp/pointDetBin.jpg',np.multiply(self.pointDetectedImage_bin,255))
+        return pointDetectedImage
+        
+
+        
+         
